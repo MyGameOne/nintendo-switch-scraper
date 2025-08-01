@@ -57,7 +57,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 10
       
       - name: Get pnpm store directory
         shell: bash
@@ -73,45 +73,17 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "📦 使用锁定文件安装依赖..."
+            pnpm install --frozen-lockfile
+          else
+            echo "📦 生成锁定文件并安装依赖..."
+            pnpm install
+          fi
       
       - name: Validate game-ids.json
-        run: |
-          if [ ! -f "data/game-ids.json" ]; then
-            echo "❌ data/game-ids.json 文件不存在"
-            exit 1
-          fi
-          
-          # 验证 JSON 格式
-          if ! jq empty data/game-ids.json; then
-            echo "❌ game-ids.json 格式无效"
-            exit 1
-          fi
-          
-          # 检查是否为数组
-          if [ "$(jq type data/game-ids.json)" != '"array"' ]; then
-            echo "❌ game-ids.json 必须是数组格式"
-            exit 1
-          fi
-          
-          GAME_COUNT=$(jq length data/game-ids.json)
-          echo "✅ 找到 game-ids.json 文件"
-          echo "📋 游戏 ID 数量: $GAME_COUNT"
-          
-          if [ "$GAME_COUNT" -eq 0 ]; then
-            echo "⚠️ 没有游戏 ID 需要处理"
-            exit 0
-          fi
-          
-          # 验证游戏 ID 格式（16位十六进制）
-          INVALID_IDS=$(jq -r '.[] | select(test("^[0-9a-fA-F]{16}$") | not)' data/game-ids.json)
-          if [ -n "$INVALID_IDS" ]; then
-            echo "❌ 发现无效的游戏 ID 格式:"
-            echo "$INVALID_IDS"
-            exit 1
-          fi
-          
-          echo "✅ 所有游戏 ID 格式验证通过"
+        run: pnpm validate
       
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
