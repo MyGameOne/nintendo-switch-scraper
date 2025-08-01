@@ -5,12 +5,6 @@ on:
   schedule:
     - cron: '0 0 * * *'
   
-  # 主分支提交时触发
-  push:
-    branches:
-      - main
-      - master
-  
   # 当 data/game-ids.json 文件变更时触发
   push:
     paths:
