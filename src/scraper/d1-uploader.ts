@@ -1,88 +1,83 @@
-import type { ScrapedGameInfo, CloudflareEnv } from '../types';
+import type { CloudflareEnv, ScrapedGameInfo } from '../types'
+import Cloudflare from 'cloudflare'
 
 export class D1Uploader {
-  private apiToken: string;
-  private accountId: string;
-  private databaseId: string;
+  private client: Cloudflare
+  private accountId: string
+  private databaseId: string
 
   constructor(env: CloudflareEnv) {
-    this.apiToken = env.CLOUDFLARE_API_TOKEN;
-    this.accountId = env.CLOUDFLARE_ACCOUNT_ID;
-    this.databaseId = env.CLOUDFLARE_D1_DATABASE_ID;
+    this.client = new Cloudflare({
+      apiToken: env.CLOUDFLARE_API_TOKEN,
+    })
+    this.accountId = env.CLOUDFLARE_ACCOUNT_ID
+    this.databaseId = env.CLOUDFLARE_D1_DATABASE_ID
   }
 
-  private async executeD1Query(sql: string, params: any[] = []) {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/d1/database/${this.databaseId}/query`;
-
+  private async executeD1Query(sql: string, params: any[] = []): Promise<{
+    success: boolean
+    results: any[]
+    meta: object
+  }> {
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const queryResultPages = this.client.d1.database.query(
+        this.databaseId,
+        {
+          account_id: this.accountId,
           sql,
-          params
-        })
-      });
+          params,
+        },
+      )
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`D1 API Error: ${response.status} ${errorText}`);
+      // 收集所有页面的结果
+      const allResults: any[] = []
+      for await (const queryResult of queryResultPages) {
+        allResults.push(...(queryResult.results || []))
       }
 
-      const result = await response.json() as any;
-
-      if (!result.success) {
-        throw new Error(`D1 操作失败: ${JSON.stringify(result.errors)}`);
-      }
-
-      // 返回第一个查询结果
-      const queryResult = result.result?.[0] || {};
       return {
-        success: result.success,
-        results: queryResult.results || [],
-        meta: queryResult.meta || {}
-      };
-    } catch (error) {
-      console.error('D1 查询执行失败:', { sql, params, error });
-      throw error;
+        success: true,
+        results: allResults,
+        meta: {},
+      }
+    }
+    catch (error) {
+      console.error('D1 查询执行失败:', { sql, params, error })
+      throw error
     }
   }
-
-
 
   async uploadGames(gamesList: ScrapedGameInfo[]): Promise<void> {
     if (gamesList.length === 0) {
-      console.log('📤 没有游戏需要上传');
-      return;
+      console.log('📤 没有游戏需要上传')
+      return
     }
 
-    console.log(`📤 开始上传 ${gamesList.length} 个游戏到 Cloudflare D1...`);
+    console.log(`📤 开始上传 ${gamesList.length} 个游戏到 Cloudflare D1...`)
 
-    let totalUploaded = 0;
+    let totalUploaded = 0
 
     for (const game of gamesList) {
       try {
-        await this.uploadSingleGame(game);
-        totalUploaded++;
-        console.log(`✅ 已上传: ${game.name_zh_hant || game.formal_name} (${totalUploaded}/${gamesList.length})`);
-      } catch (error) {
-        console.error(`❌ 上传游戏 ${game.titleId} 失败:`, error);
+        await this.uploadSingleGame(game)
+        totalUploaded++
+        console.log(`✅ 已上传: ${game.name_zh_hant || game.formal_name} (${totalUploaded}/${gamesList.length})`)
+      }
+      catch (error) {
+        console.error(`❌ 上传游戏 ${game.titleId} 失败:`, error)
       }
     }
 
-    console.log(`🎉 上传完成！成功上传 ${totalUploaded}/${gamesList.length} 个游戏`);
+    console.log(`🎉 上传完成！成功上传 ${totalUploaded}/${gamesList.length} 个游戏`)
   }
 
   private async uploadSingleGame(game: ScrapedGameInfo): Promise<void> {
-    const currentTime = new Date().toISOString();
-    
+    const currentTime = new Date().toISOString()
+
     // 检查游戏是否已存在
-    const checkQuery = 'SELECT title_id FROM games WHERE title_id = ?';
-    const existingGame = await this.executeD1Query(checkQuery, [game.titleId]);
-    
+    const checkQuery = 'SELECT title_id FROM games WHERE title_id = ?'
+    const existingGame = await this.executeD1Query(checkQuery, [game.titleId])
+
     if (existingGame.results.length > 0) {
       // 更新现有游戏
       const updateQuery = `
@@ -114,8 +109,8 @@ export class D1Uploader {
           notes = ?,
           updated_at = ?
         WHERE title_id = ?
-      `;
-      
+      `
+
       await this.executeD1Query(updateQuery, [
         game.formal_name || null,
         game.name_zh_hant || null,
@@ -143,9 +138,10 @@ export class D1Uploader {
         game.data_source || 'scraper',
         game.notes || null,
         currentTime,
-        game.titleId
-      ]);
-    } else {
+        game.titleId,
+      ])
+    }
+    else {
       // 插入新游戏
       const insertQuery = `
         INSERT INTO games (
@@ -155,8 +151,8 @@ export class D1Uploader {
           rom_size, rating_age, rating_name, in_app_purchase, cloud_backup_type,
           region, data_source, notes, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-      
+      `
+
       await this.executeD1Query(insertQuery, [
         game.titleId,
         game.formal_name || null,
@@ -185,8 +181,8 @@ export class D1Uploader {
         game.data_source || 'scraper',
         game.notes || null,
         currentTime,
-        currentTime
-      ]);
+        currentTime,
+      ])
     }
   }
 
@@ -195,40 +191,47 @@ export class D1Uploader {
    */
   async testConnection(): Promise<boolean> {
     try {
-      const response = await this.executeD1Query('SELECT COUNT(*) as count FROM games');
-      const count = response.results[0]?.count || 0;
-      console.log(`✅ D1 连接成功，当前游戏数量: ${count}`);
-      return true;
-    } catch (error) {
-      console.error('❌ D1 连接测试失败:', error);
-      return false;
+      const response = await this.executeD1Query('SELECT COUNT(*) as count FROM games')
+      const count = response.results[0]?.count || 0
+      console.log(`✅ D1 连接成功，当前游戏数量: ${count}`)
+
+      return true
+    }
+    catch (error) {
+      console.error('❌ D1 连接测试失败:', error)
+      return false
     }
   }
 
   /**
    * 获取游戏统计信息
    */
-  async getStats() {
+  async getStats(): Promise<{
+    total: any
+    scraped: any
+    manual: any
+  }> {
     try {
       const queries = [
         'SELECT COUNT(*) as count FROM games',
         'SELECT COUNT(*) as count FROM games WHERE data_source = "scraper"',
-        'SELECT COUNT(*) as count FROM games WHERE data_source = "manual"'
-      ];
+        'SELECT COUNT(*) as count FROM games WHERE data_source = "manual"',
+      ]
 
       const results = await Promise.all(queries.map(async (sql) => {
-        const response = await this.executeD1Query(sql);
-        return response.results[0]?.count || 0;
-      }));
+        const response = await this.executeD1Query(sql)
+        return response.results[0]?.count || 0
+      }))
 
       return {
         total: results[0],
         scraped: results[1],
-        manual: results[2]
-      };
-    } catch (error) {
-      console.error('❌ 获取统计信息失败:', error);
-      return { total: 0, scraped: 0, manual: 0 };
+        manual: results[2],
+      }
+    }
+    catch (error) {
+      console.error('❌ 获取统计信息失败:', error)
+      return { total: 0, scraped: 0, manual: 0 }
     }
   }
 }

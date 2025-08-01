@@ -4,17 +4,22 @@
   "description": "Nintendo Switch 游戏爬虫工具",
   "scripts": {
     "start": "tsx src/index.ts",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
     "scrape": "tsx scripts/scrape.ts",
     "validate": "tsx scripts/validate-game-ids.ts",
     "format-ids": "tsx scripts/format-game-ids.ts"
   },
   "dependencies": {
+    "cloudflare": "^4.5.0",
     "dotenv": "^17.2.1",
     "p-limit": "^6.2.0",
     "playwright": "^1.54.1"
   },
   "devDependencies": {
+    "@antfu/eslint-config": "^5.0.0",
     "@types/node": "^20.11.17",
+    "eslint": "^9.32.0",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3"
   }

@@ -1,21 +1,21 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "module": "preserve",
-    "moduleResolution":"bundler",
-    "strict": true,
-    "lib": ["es2021","DOM","ESNext"],
-    "resolveJsonModule": true,
-    "verbatimModuleSyntax": true,
-    "skipLibCheck": true,
-    "types": [
-      "node",
-    ],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "outDir": "./dist"
+    "lib": ["es2021", "DOM", "ESNext"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "types": [
+      "node"
+    ],
+    "strict": true,
+    "outDir": "./dist",
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
   },
 
-	"include": ["src/**/*.ts", "src/**/*.tsx", "src/**.tsx","scripts/scrape.ts","worker-configuration.d.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**.tsx", "scripts/scrape.ts", "worker-configuration.d.ts"],
   "exclude": ["node_modules"]
 }

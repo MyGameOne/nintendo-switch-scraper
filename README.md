@@ -27,13 +27,13 @@
    ```
 
 3. **配置环境变量**
-   
+
    创建 `.env` 文件：
    ```env
    CLOUDFLARE_API_TOKEN=your_api_token
    CLOUDFLARE_ACCOUNT_ID=your_account_id
    CLOUDFLARE_D1_DATABASE_ID=your_database_id
-   
+
    # 可选配置
    SCRAPER_CONCURRENT=3
    SCRAPER_DELAY_MIN=2000
@@ -43,7 +43,7 @@
    ```
 
 4. **准备游戏 ID 列表**
-   
+
    编辑 `data/game-ids.json` 文件，添加要爬取的游戏 ID：
    ```json
    [
@@ -61,7 +61,7 @@
 ### GitHub Actions 自动化
 
 1. **设置 Secrets**
-   
+
    在 GitHub 仓库设置中添加以下 Secrets：
    - `CLOUDFLARE_API_TOKEN`
    - `CLOUDFLARE_ACCOUNT_ID`
