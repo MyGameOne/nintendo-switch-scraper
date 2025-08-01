@@ -1,0 +1,183 @@
+name: Nintendo Switch Scraper
+
+on:
+  # 每天 UTC 0点（北京时间 8点）运行
+  schedule:
+    - cron: '0 0 * * *'
+  
+  # 当 data/game-ids.json 文件变更时触发
+  push:
+    paths:
+      - 'data/game-ids.json'
+    branches:
+      - main
+      - master
+  
+  # 允许手动触发
+  workflow_dispatch:
+    inputs:
+      concurrent:
+        description: '并发数量'
+        required: false
+        default: '3'
+        type: string
+      delay_min:
+        description: '最小延迟(ms)'
+        required: false
+        default: '2000'
+        type: string
+      delay_max:
+        description: '最大延迟(ms)'
+        required: false
+        default: '5000'
+        type: string
+
+env:
+  # 默认配置
+  SCRAPER_CONCURRENT: ${{ github.event.inputs.concurrent || '3' }}
+  SCRAPER_DELAY_MIN: ${{ github.event.inputs.delay_min || '2000' }}
+  SCRAPER_DELAY_MAX: ${{ github.event.inputs.delay_max || '5000' }}
+  SCRAPER_HEADLESS: true
+  SCRAPER_PARALLEL: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Validate game-ids.json
+        run: |
+          if [ ! -f "data/game-ids.json" ]; then
+            echo "❌ data/game-ids.json 文件不存在"
+            exit 1
+          fi
+          
+          # 验证 JSON 格式
+          if ! jq empty data/game-ids.json; then
+            echo "❌ game-ids.json 格式无效"
+            exit 1
+          fi
+          
+          # 检查是否为数组
+          if [ "$(jq type data/game-ids.json)" != '"array"' ]; then
+            echo "❌ game-ids.json 必须是数组格式"
+            exit 1
+          fi
+          
+          GAME_COUNT=$(jq length data/game-ids.json)
+          echo "✅ 找到 game-ids.json 文件"
+          echo "📋 游戏 ID 数量: $GAME_COUNT"
+          
+          if [ "$GAME_COUNT" -eq 0 ]; then
+            echo "⚠️ 没有游戏 ID 需要处理"
+            exit 0
+          fi
+          
+          # 验证游戏 ID 格式（16位十六进制）
+          INVALID_IDS=$(jq -r '.[] | select(test("^[0-9a-fA-F]{16}$") | not)' data/game-ids.json)
+          if [ -n "$INVALID_IDS" ]; then
+            echo "❌ 发现无效的游戏 ID 格式:"
+            echo "$INVALID_IDS"
+            exit 1
+          fi
+          
+          echo "✅ 所有游戏 ID 格式验证通过"
+      
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+      
+      - name: Run scraper
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+        run: |
+          echo "🚀 开始运行爬虫..."
+          echo "⚙️ 配置信息:"
+          echo "   并发数: $SCRAPER_CONCURRENT"
+          echo "   延迟范围: ${SCRAPER_DELAY_MIN}-${SCRAPER_DELAY_MAX}ms"
+          echo "   无头模式: $SCRAPER_HEADLESS"
+          echo "   并行模式: $SCRAPER_PARALLEL"
+          echo ""
+          
+          # 运行爬虫并捕获输出
+          pnpm scrape 2>&1 | tee scraper.log
+      
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 🎮 Nintendo Switch 爬虫运行报告" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "scraper.log" ]; then
+            SUCCESS_COUNT=$(grep -c "✅ 成功处理:" scraper.log || echo "0")
+            FAILED_COUNT=$(grep -c "❌ 爬取失败:" scraper.log || echo "0")
+            TOTAL_COUNT=$((SUCCESS_COUNT + FAILED_COUNT))
+            
+            echo "### 📊 统计信息" >> $GITHUB_STEP_SUMMARY
+            echo "- 总计: $TOTAL_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- 成功: $SUCCESS_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- 失败: $FAILED_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$FAILED_COUNT" -gt 0 ]; then
+              echo "### ❌ 失败的游戏 ID" >> $GITHUB_STEP_SUMMARY
+              grep "❌ 爬取失败:" scraper.log | sed 's/.*爬取失败: /- /' >> $GITHUB_STEP_SUMMARY || true
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "### ✅ 成功处理的游戏" >> $GITHUB_STEP_SUMMARY
+            grep "✅ 成功处理:" scraper.log | sed 's/.*成功处理: /- /' | head -10 >> $GITHUB_STEP_SUMMARY || true
+            
+            if [ "$SUCCESS_COUNT" -gt 10 ]; then
+              echo "- ... 还有 $((SUCCESS_COUNT - 10)) 个游戏" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ 未找到运行日志" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-logs-${{ github.run_number }}
+          path: |
+            scraper.log
+            *.log
+          retention-days: 30
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "🚨 爬虫运行失败！请检查日志。"
+          exit 1

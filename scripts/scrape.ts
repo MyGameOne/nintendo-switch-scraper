@@ -1,9 +1,9 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
-import { ScraperService } from '../src/services/scraper-service';
-import { GameService } from '../src/services/game-service';
+import { GameScraper } from '../src/scraper/game-scraper';
 import { D1Uploader } from '../src/scraper/d1-uploader';
+import pLimit from 'p-limit';
 
 // 加载环境变量
 dotenv.config();
@@ -68,30 +68,51 @@ async function main() {
     process.exit(1);
   }
 
-  // 创建 GameService（使用 D1Uploader 的数据库连接）
-  const gameService = new GameService(d1Uploader.getDbConnection());
-  const scraperService = new ScraperService(gameService);
+  // 初始化爬虫
+  const scraper = new GameScraper();
+  await scraper.initialize();
 
   try {
-    // 初始化爬虫
-    await scraperService.initialize();
-
-    // 批量爬取并保存游戏
-    const useParallel = process.env.SCRAPER_PARALLEL !== 'false';
     const concurrency = parseInt(process.env.SCRAPER_CONCURRENT || '3');
+    const limit = pLimit(concurrency);
     
-    const result = useParallel 
-      ? await scraperService.parallelScrapeAndSave(gameIds, concurrency)
-      : await scraperService.batchScrapeAndSave(gameIds);
+    let successCount = 0;
+    let failedCount = 0;
+
+    console.log(`🚀 开始爬取 ${gameIds.length} 个游戏...`);
+
+    // 并发爬取游戏
+    const tasks = gameIds.map(gameId => 
+      limit(async () => {
+        try {
+          console.log(`🔍 正在爬取游戏: ${gameId}`);
+          const gameInfo = await scraper.scrapeGame(gameId);
+          
+          if (gameInfo) {
+            await d1Uploader.uploadGames([gameInfo]);
+            successCount++;
+            console.log(`✅ 成功处理: ${gameInfo.name_zh_hant || gameInfo.formal_name}`);
+          } else {
+            failedCount++;
+            console.log(`❌ 爬取失败: ${gameId}`);
+          }
+        } catch (error) {
+          failedCount++;
+          console.error(`❌ 处理游戏 ${gameId} 时出错:`, error);
+        }
+      })
+    );
+
+    await Promise.all(tasks);
 
     console.log('🎉 所有任务完成！');
-    console.log(`📊 最终统计: 成功 ${result.success}, 失败 ${result.failed}`);
+    console.log(`📊 最终统计: 成功 ${successCount}, 失败 ${failedCount}`);
 
   } catch (error) {
     console.error('❌ 爬虫执行过程中出错:', error);
     process.exit(1);
   } finally {
-    await scraperService.destroy();
+    await scraper.destroy();
   }
 }
 

@@ -1,0 +1,127 @@
+name: Validate Game IDs
+
+on:
+  pull_request:
+    paths:
+      - 'data/game-ids.json'
+  
+  push:
+    paths:
+      - 'data/game-ids.json'
+    branches-ignore:
+      - main
+      - master
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Validate game-ids.json format
+        run: |
+          echo "🔍 验证 game-ids.json 文件..."
+          
+          if [ ! -f "data/game-ids.json" ]; then
+            echo "❌ data/game-ids.json 文件不存在"
+            exit 1
+          fi
+          
+          # 验证 JSON 格式
+          if ! jq empty data/game-ids.json; then
+            echo "❌ JSON 格式无效"
+            exit 1
+          fi
+          
+          # 检查是否为数组
+          if [ "$(jq type data/game-ids.json)" != '"array"' ]; then
+            echo "❌ 必须是数组格式"
+            exit 1
+          fi
+          
+          GAME_COUNT=$(jq length data/game-ids.json)
+          echo "✅ JSON 格式验证通过"
+          echo "📋 游戏 ID 数量: $GAME_COUNT"
+          
+          if [ "$GAME_COUNT" -eq 0 ]; then
+            echo "⚠️ 数组为空"
+            exit 0
+          fi
+          
+          # 验证游戏 ID 格式（16位十六进制）
+          echo "🔍 验证游戏 ID 格式..."
+          INVALID_IDS=$(jq -r '.[] | select(test("^[0-9a-fA-F]{16}$") | not)' data/game-ids.json)
+          if [ -n "$INVALID_IDS" ]; then
+            echo "❌ 发现无效的游戏 ID 格式:"
+            echo "$INVALID_IDS"
+            echo ""
+            echo "💡 游戏 ID 必须是 16 位十六进制字符串，例如: 0100000000010000"
+            exit 1
+          fi
+          
+          # 检查重复的游戏 ID
+          echo "🔍 检查重复的游戏 ID..."
+          DUPLICATES=$(jq -r '.[]' data/game-ids.json | sort | uniq -d)
+          if [ -n "$DUPLICATES" ]; then
+            echo "❌ 发现重复的游戏 ID:"
+            echo "$DUPLICATES"
+            exit 1
+          fi
+          
+          # 检查大小写一致性（建议使用小写）
+          echo "🔍 检查大小写一致性..."
+          MIXED_CASE=$(jq -r '.[] | select(test("[A-F]"))' data/game-ids.json)
+          if [ -n "$MIXED_CASE" ]; then
+            echo "⚠️ 建议使用小写字母:"
+            echo "$MIXED_CASE"
+            echo ""
+            echo "💡 虽然大写字母有效，但建议统一使用小写以保持一致性"
+          fi
+          
+          echo "✅ 所有验证通过！"
+          echo "📊 统计信息:"
+          echo "   - 总数量: $GAME_COUNT"
+          echo "   - 格式: 16位十六进制"
+          echo "   - 重复: 无"
+      
+      - name: Show changes
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "## 📝 Game IDs 变更摘要" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 获取变更前后的文件
+          git fetch origin ${{ github.base_ref }}
+          
+          if git show origin/${{ github.base_ref }}:data/game-ids.json > /tmp/old-game-ids.json 2>/dev/null; then
+            OLD_COUNT=$(jq length /tmp/old-game-ids.json)
+            NEW_COUNT=$(jq length data/game-ids.json)
+            DIFF_COUNT=$((NEW_COUNT - OLD_COUNT))
+            
+            echo "### 📊 数量变化" >> $GITHUB_STEP_SUMMARY
+            echo "- 变更前: $OLD_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- 变更后: $NEW_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- 差异: $DIFF_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # 显示新增的游戏 ID
+            NEW_IDS=$(jq -r '.[]' data/game-ids.json | grep -v -F -f <(jq -r '.[]' /tmp/old-game-ids.json) || true)
+            if [ -n "$NEW_IDS" ]; then
+              echo "### ➕ 新增的游戏 ID" >> $GITHUB_STEP_SUMMARY
+              echo "$NEW_IDS" | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # 显示删除的游戏 ID
+            REMOVED_IDS=$(jq -r '.[]' /tmp/old-game-ids.json | grep -v -F -f <(jq -r '.[]' data/game-ids.json) || true)
+            if [ -n "$REMOVED_IDS" ]; then
+              echo "### ➖ 删除的游戏 ID" >> $GITHUB_STEP_SUMMARY
+              echo "$REMOVED_IDS" | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### 📝 新文件" >> $GITHUB_STEP_SUMMARY
+            echo "这是一个新的 game-ids.json 文件，包含 $(jq length data/game-ids.json) 个游戏 ID。" >> $GITHUB_STEP_SUMMARY
+          fi
