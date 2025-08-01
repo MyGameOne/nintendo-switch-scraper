@@ -5,6 +5,12 @@ on:
   schedule:
     - cron: '0 0 * * *'
   
+  # 主分支提交时触发
+  push:
+    branches:
+      - main
+      - master
+  
   # 当 data/game-ids.json 文件变更时触发
   push:
     paths:
@@ -13,7 +19,7 @@ on:
       - main
       - master
   
-  # 允许手动触发
+  # 允许手动触发（GitHub Actions 页面点击按钮运行）
   workflow_dispatch:
     inputs:
       concurrent:
