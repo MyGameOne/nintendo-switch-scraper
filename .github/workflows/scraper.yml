@@ -3,36 +3,35 @@ name: Nintendo Switch Scraper
 on:
   # 每天 UTC 0点（北京时间 8点）运行
   schedule:
-    - cron: '0 0 * * *'
-  
-  push:
+    - cron: "0 0 * * *"
 
+  push:
     branches:
       - main
       - master
-  
+
   # 允许手动触发（GitHub Actions 页面点击按钮运行）
   workflow_dispatch:
     inputs:
       concurrent:
-        description: '并发数量'
+        description: "并发数量"
         required: false
-        default: '3'
+        default: "3"
         type: string
       delay_min:
-        description: '最小延迟(ms)'
+        description: "最小延迟(ms)"
         required: false
-        default: '2000'
+        default: "2000"
         type: string
       delay_max:
-        description: '最大延迟(ms)'
+        description: "最大延迟(ms)"
         required: false
-        default: '5000'
+        default: "5000"
         type: string
       batch_size:
-        description: 'KV 队列批次大小'
+        description: "KV 队列批次大小"
         required: false
-        default: '50'
+        default: "50"
         type: string
 
 env:
@@ -47,26 +46,26 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      
+          node-version: "20"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
           version: 10
-      
+
       - name: Get pnpm store directory
         shell: bash
         run: |
           echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-      
+
       - name: Setup pnpm cache
         uses: actions/cache@v3
         with:
@@ -74,7 +73,7 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
-      
+
       - name: Install dependencies
         run: |
           if [ -f "pnpm-lock.yaml" ]; then
@@ -84,12 +83,10 @@ jobs:
             echo "📦 生成锁定文件并安装依赖..."
             pnpm install
           fi
-      
 
-      
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
-      
+
       - name: Run scraper
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -104,19 +101,24 @@ jobs:
           echo "   批次大小: $SCRAPER_BATCH_SIZE"
           echo "   无头模式: $SCRAPER_HEADLESS"
           echo ""
-          
+
           # 运行 KV 队列爬虫
           pnpm scrape 2>&1 | tee scraper.log
-      
+
       - name: Generate summary
         if: always()
         run: |
           echo "## 🎮 Nintendo Switch 爬虫运行报告" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ -f "scraper.log" ]; then
-            SUCCESS_COUNT=$(grep -c "✅ 成功处理:" scraper.log || echo "0")
-            FAILED_COUNT=$(grep -c "❌ 爬取失败:" scraper.log || echo "0")
+            # 使用更安全的方式计算统计数据
+            SUCCESS_COUNT=$(grep -c "成功处理" scraper.log 2>/dev/null || echo "0")
+            FAILED_COUNT=$(grep -c "爬取失败" scraper.log 2>/dev/null || echo "0")
+            
+            # 确保变量是数字
+            SUCCESS_COUNT=${SUCCESS_COUNT:-0}
+            FAILED_COUNT=${FAILED_COUNT:-0}
             TOTAL_COUNT=$((SUCCESS_COUNT + FAILED_COUNT))
             
             echo "### 📊 统计信息" >> $GITHUB_STEP_SUMMARY
@@ -125,22 +127,37 @@ jobs:
             echo "- 失败: $FAILED_COUNT" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
+            # 显示失败的游戏 ID
             if [ "$FAILED_COUNT" -gt 0 ]; then
               echo "### ❌ 失败的游戏 ID" >> $GITHUB_STEP_SUMMARY
-              grep "❌ 爬取失败:" scraper.log | sed 's/.*爬取失败: /- /' >> $GITHUB_STEP_SUMMARY || true
+              grep "爬取失败" scraper.log 2>/dev/null | head -20 | while read -r line; do
+                echo "- $line" >> $GITHUB_STEP_SUMMARY
+              done || true
               echo "" >> $GITHUB_STEP_SUMMARY
             fi
             
+            # 显示成功处理的游戏
             echo "### ✅ 成功处理的游戏" >> $GITHUB_STEP_SUMMARY
-            grep "✅ 成功处理:" scraper.log | sed 's/.*成功处理: /- /' | head -10 >> $GITHUB_STEP_SUMMARY || true
+            grep "成功处理" scraper.log 2>/dev/null | head -10 | while read -r line; do
+              echo "- $line" >> $GITHUB_STEP_SUMMARY
+            done || true
             
             if [ "$SUCCESS_COUNT" -gt 10 ]; then
-              echo "- ... 还有 $((SUCCESS_COUNT - 10)) 个游戏" >> $GITHUB_STEP_SUMMARY
+              REMAINING=$((SUCCESS_COUNT - 10))
+              echo "- ... 还有 $REMAINING 个游戏" >> $GITHUB_STEP_SUMMARY
             fi
+            
+            # 显示队列统计
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📋 队列状态" >> $GITHUB_STEP_SUMMARY
+            grep -E "(队列|pending|processing|completed)" scraper.log 2>/dev/null | tail -5 | while read -r line; do
+              echo "- $line" >> $GITHUB_STEP_SUMMARY
+            done || true
+            
           else
             echo "❌ 未找到运行日志" >> $GITHUB_STEP_SUMMARY
           fi
-      
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -150,7 +167,7 @@ jobs:
             scraper.log
             *.log
           retention-days: 30
-      
+
       - name: Notify on failure
         if: failure()
         run: |
