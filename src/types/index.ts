@@ -31,6 +31,7 @@ export interface CloudflareEnv {
   CLOUDFLARE_API_TOKEN: string
   CLOUDFLARE_ACCOUNT_ID: string
   CLOUDFLARE_D1_DATABASE_ID: string
+  CLOUDFLARE_KV_GAME_IDS_ID: string
 }
 
 // 用于 Drizzle ORM 的类型
