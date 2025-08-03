@@ -61,7 +61,8 @@ export class KVQueueManager {
           )
 
           if (valueResponse) {
-            const queueData = JSON.parse(valueResponse)
+            const valueText = await valueResponse.text()
+            const queueData = JSON.parse(valueText)
             queueItems.push({
               titleId,
               addedAt: queueData.addedAt || Date.now(),
@@ -304,7 +305,8 @@ export class KVQueueManager {
           )
 
           if (valueResponse) {
-            const processingData = JSON.parse(valueResponse)
+            const valueText = await valueResponse.text()
+            const processingData = JSON.parse(valueText)
             if (processingData.startedAt < oneHourAgo) {
               // 将过期的 processing 状态重新标记为 pending
               const titleId = key.name.replace('processing:', '')
@@ -366,6 +368,7 @@ export class KVQueueManager {
     }
     catch (error) {
       console.error('❌ KV 连接测试失败:', error)
+      return false
     }
   }
 }
