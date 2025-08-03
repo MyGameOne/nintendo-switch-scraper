@@ -116,9 +116,14 @@ jobs:
             SUCCESS_COUNT=$(grep -c "成功处理" scraper.log 2>/dev/null || echo "0")
             FAILED_COUNT=$(grep -c "爬取失败" scraper.log 2>/dev/null || echo "0")
             
-            # 确保变量是数字
-            SUCCESS_COUNT=${SUCCESS_COUNT:-0}
-            FAILED_COUNT=${FAILED_COUNT:-0}
+            # 确保变量是有效数字，处理空字符串情况
+            if ! [[ "$SUCCESS_COUNT" =~ ^[0-9]+$ ]]; then
+              SUCCESS_COUNT=0
+            fi
+            if ! [[ "$FAILED_COUNT" =~ ^[0-9]+$ ]]; then
+              FAILED_COUNT=0
+            fi
+            
             TOTAL_COUNT=$((SUCCESS_COUNT + FAILED_COUNT))
             
             echo "### 📊 统计信息" >> $GITHUB_STEP_SUMMARY
@@ -147,12 +152,32 @@ jobs:
               echo "- ... 还有 $REMAINING 个游戏" >> $GITHUB_STEP_SUMMARY
             fi
             
-            # 显示队列统计
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 📋 队列状态" >> $GITHUB_STEP_SUMMARY
-            grep -E "(队列|pending|processing|completed)" scraper.log 2>/dev/null | tail -5 | while read -r line; do
-              echo "- $line" >> $GITHUB_STEP_SUMMARY
-            done || true
+            # 如果队列为空，显示特殊消息和队列统计
+            if [ "$TOTAL_COUNT" -eq 0 ]; then
+              echo "### 📋 队列状态" >> $GITHUB_STEP_SUMMARY
+              echo "- 队列中没有待处理的游戏" >> $GITHUB_STEP_SUMMARY
+              echo "- 爬虫任务正常完成" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # 尝试提取队列统计信息
+              if grep -q "队列统计" scraper.log 2>/dev/null; then
+                echo "### 📊 队列统计详情" >> $GITHUB_STEP_SUMMARY
+                grep -A 10 "队列统计" scraper.log 2>/dev/null | head -10 | while read -r line; do
+                  if [[ "$line" =~ (待处理|处理中|已完成|失败) ]]; then
+                    echo "- $line" >> $GITHUB_STEP_SUMMARY
+                  fi
+                done || true
+              fi
+            fi
+            
+            # 显示队列统计（如果不是空队列情况）
+            if [ "$TOTAL_COUNT" -gt 0 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 📋 队列状态" >> $GITHUB_STEP_SUMMARY
+              grep -E "(队列|pending|processing|completed)" scraper.log 2>/dev/null | tail -5 | while read -r line; do
+                echo "- $line" >> $GITHUB_STEP_SUMMARY
+              done || true
+            fi
             
           else
             echo "❌ 未找到运行日志" >> $GITHUB_STEP_SUMMARY
