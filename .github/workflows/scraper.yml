@@ -5,10 +5,8 @@ on:
   schedule:
     - cron: '0 0 * * *'
   
-  # 当 data/game-ids.json 文件变更时触发
   push:
-    paths:
-      - 'data/game-ids.json'
+
     branches:
       - main
       - master

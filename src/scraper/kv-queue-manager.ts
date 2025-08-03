@@ -357,7 +357,7 @@ export class KVQueueManager {
         this.gameIdsNamespaceId,
         {
           account_id: this.accountId,
-          limit: 1,
+          limit: 10,
         },
       )
 
