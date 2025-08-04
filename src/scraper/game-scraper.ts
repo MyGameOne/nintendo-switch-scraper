@@ -170,8 +170,9 @@ export class GameScraper {
 
       // 提取游戏信息
       const gameInfo = await page.evaluate(() => {
-        // 尝试从 NXSTORE 对象中提取信息
-        const nxstore = (window as any).NXSTORE
+        try {
+          // 尝试从 NXSTORE 对象中提取信息
+          const nxstore = (window as any).NXSTORE
         if (nxstore && nxstore.titleDetail && nxstore.titleDetail.jsonData) {
           const data = nxstore.titleDetail.jsonData
 
@@ -186,31 +187,36 @@ export class GameScraper {
             ? data.play_styles.map((style: any) => style.name)
             : []
 
-          function getRomSize(romSizeInfos: any[]): number | undefined {
-            if (!Array.isArray(romSizeInfos) || romSizeInfos.length === 0) {
-              return undefined
-            }
-
-            const priorities = ['BEE', 'HAC']
-
-            for (const platform of priorities) {
-              const info = romSizeInfos.find(
-                item => item.platform === platform
-                  && typeof item.total_rom_size === 'number'
-                  && item.total_rom_size > 0,
-              )
-              if (info) {
-                return info.total_rom_size
-              }
-            }
-
-            // 回退：选择任何有效的容量信息
-            const fallback = romSizeInfos.find(
-              item => typeof item.total_rom_size === 'number'
-                && item.total_rom_size > 0,
+          // 提取ROM大小 - 简化逻辑避免复杂函数
+          let romSize: number | undefined
+          if (data.rom_size_infos && Array.isArray(data.rom_size_infos)) {
+            // 优先查找 BEE 平台
+            let info = data.rom_size_infos.find((item: any) => 
+              item.platform === 'BEE' && 
+              typeof item.total_rom_size === 'number' && 
+              item.total_rom_size > 0
             )
-
-            return fallback?.total_rom_size
+            
+            // 如果没有 BEE，查找 HAC
+            if (!info) {
+              info = data.rom_size_infos.find((item: any) => 
+                item.platform === 'HAC' && 
+                typeof item.total_rom_size === 'number' && 
+                item.total_rom_size > 0
+              )
+            }
+            
+            // 如果还没有，取任何有效的
+            if (!info) {
+              info = data.rom_size_infos.find((item: any) => 
+                typeof item.total_rom_size === 'number' && 
+                item.total_rom_size > 0
+              )
+            }
+            
+            if (info) {
+              romSize = info.total_rom_size
+            }
           }
 
           return {
@@ -227,7 +233,7 @@ export class GameScraper {
             languages: data.languages || [],
             player_number: data.player_number || {},
             play_styles: playStyles,
-            rom_size: getRomSize(data.rom_size_infos),
+            rom_size: romSize,
             rating_age: data.rating_info?.rating?.age,
             rating_name: data.rating_info?.rating?.name,
             in_app_purchase: data.in_app_purchase,
@@ -242,6 +248,10 @@ export class GameScraper {
         return {
           name_zh_hant: nameElement ? nameElement.getAttribute('content') : null,
           publisher_name: publisherElement ? publisherElement.getAttribute('content') : null,
+        }
+        } catch (error) {
+          console.error('页面数据提取失败:', error)
+          return null
         }
       }) as any
 
