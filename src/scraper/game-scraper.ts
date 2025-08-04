@@ -186,6 +186,33 @@ export class GameScraper {
             ? data.play_styles.map((style: any) => style.name)
             : []
 
+          function getRomSize(romSizeInfos: any[]): number | undefined {
+            if (!Array.isArray(romSizeInfos) || romSizeInfos.length === 0) {
+              return undefined
+            }
+
+            const priorities = ['BEE', 'HAC']
+
+            for (const platform of priorities) {
+              const info = romSizeInfos.find(
+                item => item.platform === platform
+                  && typeof item.total_rom_size === 'number'
+                  && item.total_rom_size > 0,
+              )
+              if (info) {
+                return info.total_rom_size
+              }
+            }
+
+            // 回退：选择任何有效的容量信息
+            const fallback = romSizeInfos.find(
+              item => typeof item.total_rom_size === 'number'
+                && item.total_rom_size > 0,
+            )
+
+            return fallback?.total_rom_size
+          }
+
           return {
             formal_name: data.formal_name,
             catch_copy: data.catch_copy,
@@ -200,7 +227,7 @@ export class GameScraper {
             languages: data.languages || [],
             player_number: data.player_number || {},
             play_styles: playStyles,
-            rom_size: data.rom_size_infos?.[0]?.total_rom_size,
+            rom_size: getRomSize(data.rom_size_infos),
             rating_age: data.rating_info?.rating?.age,
             rating_name: data.rating_info?.rating?.name,
             in_app_purchase: data.in_app_purchase,
