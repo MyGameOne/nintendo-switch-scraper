@@ -122,32 +122,42 @@ KV 队列管理系统实现了用户驱动的数据采集闭环：
 ### 队列状态流转
 
 ```
-pending → processing → completed
-   ↓           ↓
- failed ←  timeout
+pending → 爬取成功 → 从队列移除
+   ↓
+ failed → 失败次数累积 → 黑名单 (3次失败后)
 ```
 
 - **pending**: 等待处理的游戏 ID
-- **processing**: 正在处理中的游戏 ID
-- **completed**: 已成功处理的游戏 ID
-- **failed**: 处理失败的游戏 ID
+- **failed**: 处理失败的游戏 ID（包含失败次数）
+- **blacklisted**: 失败次数达到上限的游戏 ID（自动过期）
 
 ### KV 存储结构
 
 ```
 GAME_IDS 命名空间：
-├── "pending:{titleId}" → { addedAt: timestamp, source: "user_query" }
-├── "processing:{titleId}" → { startedAt: timestamp, attempts: 1 }
-├── "completed:{titleId}" → { completedAt: timestamp, hasData: true }
-└── "failed:{titleId}" → { lastAttempt: timestamp, error: "..." }
+├── "pending:{titleId}" → { 
+│     addedAt: timestamp, 
+│     source: "user_query",
+│     status: "pending",
+│     failureCount: 0
+│   }
+└── "failed:{titleId}" → { 
+      addedAt: timestamp,
+      source: "user_query", 
+      status: "failed",
+      failureCount: 3,
+      lastFailedAt: timestamp,
+      blacklisted: true,
+      reason: "error message"
+    }
 ```
 
 ### 队列管理功能
 
 - **自动去重**：避免重复处理相同的游戏 ID
-- **状态追踪**：完整的处理状态记录
-- **错误处理**：失败重试和错误记录
-- **过期清理**：自动清理长时间未完成的处理任务
+- **智能黑名单**：失败3次后自动加入黑名单，30天后过期
+- **失败追踪**：记录失败次数和原因
+- **状态管理**：简化的 pending/failed 状态管理
 - **批量处理**：支持批量读取和处理
 
 ## 📊 数据库结构

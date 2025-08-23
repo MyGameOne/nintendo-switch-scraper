@@ -67,11 +67,10 @@ async function main() {
 
   // 获取队列统计
   const queueStats = await kvQueueManager.getQueueStats()
-  console.log('� 队列统计:g')
+  console.log('📊 队列统计:')
   console.log(`   待处理: ${queueStats.pendingCount}`)
-  console.log(`   处理中: ${queueStats.processingCount}`)
-  console.log(`   已完成: ${queueStats.completedCount}`)
   console.log(`   失败: ${queueStats.failedCount}`)
+  console.log(`   黑名单: ${queueStats.blacklistedCount}`)
   console.log('')
 
   if (queueStats.pendingCount === 0) {
@@ -116,9 +115,6 @@ async function main() {
 
         try {
           console.log(`🔍 开始处理游戏: ${titleId}`)
-
-          // 标记为处理中
-          await kvQueueManager.markAsProcessing(titleId)
 
           // 爬取游戏信息
           const gameInfo = await scraper.scrapeGame(titleId)
@@ -172,9 +168,8 @@ async function main() {
     const finalStats = await kvQueueManager.getQueueStats()
     console.log('\n📊 更新后的队列统计:')
     console.log(`   待处理: ${finalStats.pendingCount}`)
-    console.log(`   处理中: ${finalStats.processingCount}`)
-    console.log(`   已完成: ${finalStats.completedCount}`)
     console.log(`   失败: ${finalStats.failedCount}`)
+    console.log(`   黑名单: ${finalStats.blacklistedCount}`)
 
     // 生成运行报告
     await generateReport({

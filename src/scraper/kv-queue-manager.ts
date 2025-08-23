@@ -5,6 +5,11 @@ export interface QueueItem {
   titleId: string
   addedAt: number
   source: string
+  status: 'pending' | 'processing' | 'failed'
+  failureCount: number
+  lastFailedAt?: number
+  blacklisted?: boolean
+  reason?: string
 }
 
 export class KVQueueManager {
@@ -67,6 +72,11 @@ export class KVQueueManager {
               titleId,
               addedAt: queueData.addedAt || Date.now(),
               source: queueData.source || 'unknown',
+              status: queueData.status || 'pending',
+              failureCount: queueData.failureCount || 0,
+              lastFailedAt: queueData.lastFailedAt,
+              blacklisted: queueData.blacklisted,
+              reason: queueData.reason,
             })
           }
         }
@@ -77,6 +87,8 @@ export class KVQueueManager {
             titleId: key.name.replace('pending:', ''),
             addedAt: Date.now(),
             source: 'unknown',
+            status: 'pending',
+            failureCount: 0,
           })
         }
       }
@@ -94,110 +106,122 @@ export class KVQueueManager {
   }
 
   /**
-   * 将游戏 ID 状态更新为 processing
+   * 将游戏 ID 状态更新为 processing（保持兼容性，实际不再使用）
    * @param titleId 游戏 ID
    */
   async markAsProcessing(titleId: string): Promise<void> {
-    try {
-      const processingKey = `processing:${titleId}`
-      const processingData = {
-        startedAt: Date.now(),
-        attempts: 1,
-      }
-
-      await this.client.kv.namespaces.values.update(
-        this.gameIdsNamespaceId,
-        processingKey,
-        {
-          account_id: this.accountId,
-          value: JSON.stringify(processingData),
-        },
-      )
-
-      console.log(`🔄 游戏 ${titleId} 状态已更新为 processing`)
-    }
-    catch (error) {
-      console.error(`❌ 更新游戏 ${titleId} 状态为 processing 失败:`, error)
-      // 不抛出错误，因为这不应该阻止爬取过程
-    }
+    // 新的 KV 结构不再使用 processing 状态，保持方法兼容性但不执行操作
+    console.log(`🔄 游戏 ${titleId} 开始处理（新结构不需要 processing 状态）`)
   }
 
   /**
-   * 将游戏 ID 状态更新为 completed 并清理 pending 状态
+   * 标记游戏爬取成功并从队列中移除
    * @param titleId 游戏 ID
    */
   async markAsCompleted(titleId: string): Promise<void> {
     try {
-      const completedKey = `completed:${titleId}`
       const pendingKey = `pending:${titleId}`
-      const processingKey = `processing:${titleId}`
+      const failedKey = `failed:${titleId}`
 
-      const completedData = {
-        completedAt: Date.now(),
-        hasData: true,
-      }
-
-      // 添加 completed 状态
-      await this.client.kv.namespaces.values.update(
-        this.gameIdsNamespaceId,
-        completedKey,
-        {
-          account_id: this.accountId,
-          value: JSON.stringify(completedData),
-        },
-      )
-
-      // 清理 pending 和 processing 状态
+      // 从队列和失败记录中移除
       await Promise.all([
         this.deleteKey(pendingKey),
-        this.deleteKey(processingKey),
+        this.deleteKey(failedKey),
       ])
 
-      console.log(`✅ 游戏 ${titleId} 状态已更新为 completed`)
+      console.log(`✅ 游戏 ${titleId} 爬取成功，已从队列中移除`)
     }
     catch (error) {
-      console.error(`❌ 更新游戏 ${titleId} 状态为 completed 失败:`, error)
-      // 不抛出错误，但记录警告
+      console.error(`❌ 标记游戏 ${titleId} 完成失败:`, error)
     }
   }
 
   /**
-   * 将游戏 ID 状态更新为 failed
+   * 记录游戏爬取失败
    * @param titleId 游戏 ID
    * @param error 错误信息
    */
   async markAsFailed(titleId: string, error: string): Promise<void> {
     try {
-      const failedKey = `failed:${titleId}`
       const pendingKey = `pending:${titleId}`
-      const processingKey = `processing:${titleId}`
+      const failedKey = `failed:${titleId}`
+      const MAX_FAILURE_COUNT = 3
+      const BLACKLIST_TTL = 30 * 24 * 60 * 60 // 30天
 
-      const failedData = {
-        lastAttempt: Date.now(),
-        attempts: 1,
-        error: error.substring(0, 500), // 限制错误信息长度
-      }
+      // 从待处理队列中移除
+      await this.deleteKey(pendingKey)
 
-      // 添加 failed 状态
-      await this.client.kv.namespaces.values.update(
+      // 获取或创建失败记录
+      let failureData: QueueItem
+      const existingFailure = await this.client.kv.namespaces.values.get(
         this.gameIdsNamespaceId,
         failedKey,
-        {
-          account_id: this.accountId,
-          value: JSON.stringify(failedData),
-        },
+        { account_id: this.accountId },
       )
 
-      // 清理 pending 和 processing 状态
-      await Promise.all([
-        this.deleteKey(pendingKey),
-        this.deleteKey(processingKey),
-      ])
+      if (existingFailure) {
+        try {
+          const valueText = await existingFailure.text()
+          failureData = JSON.parse(valueText)
+          failureData.failureCount += 1
+          failureData.lastFailedAt = Date.now()
+          failureData.reason = error.substring(0, 500)
+        }
+        catch {
+          // 解析失败，创建新记录
+          failureData = {
+            titleId,
+            addedAt: Date.now(),
+            source: 'unknown',
+            status: 'failed',
+            failureCount: 1,
+            lastFailedAt: Date.now(),
+            reason: error.substring(0, 500),
+          }
+        }
+      }
+      else {
+        failureData = {
+          titleId,
+          addedAt: Date.now(),
+          source: 'unknown',
+          status: 'failed',
+          failureCount: 1,
+          lastFailedAt: Date.now(),
+          reason: error.substring(0, 500),
+        }
+      }
 
-      console.log(`❌ 游戏 ${titleId} 状态已更新为 failed: ${error}`)
+      // 检查是否需要加入黑名单
+      if (failureData.failureCount >= MAX_FAILURE_COUNT) {
+        failureData.blacklisted = true
+        console.log(`🚫 游戏 ID ${titleId} 失败 ${failureData.failureCount} 次，已加入黑名单`)
+
+        // 设置较长的 TTL
+        await this.client.kv.namespaces.values.update(
+          this.gameIdsNamespaceId,
+          failedKey,
+          {
+            account_id: this.accountId,
+            value: JSON.stringify(failureData),
+            expiration_ttl: BLACKLIST_TTL,
+          },
+        )
+      }
+      else {
+        console.log(`⚠️ 游戏 ID ${titleId} 失败 ${failureData.failureCount} 次`)
+        await this.client.kv.namespaces.values.update(
+          this.gameIdsNamespaceId,
+          failedKey,
+          {
+            account_id: this.accountId,
+            value: JSON.stringify(failureData),
+          },
+        )
+      }
     }
     catch (kvError) {
-      console.error(`❌ 更新游戏 ${titleId} 状态为 failed 失败:`, kvError)
+      console.error(`❌ 记录游戏 ${titleId} 失败状态时出错:`, kvError)
     }
   }
 
@@ -226,127 +250,73 @@ export class KVQueueManager {
    */
   async getQueueStats(): Promise<{
     pendingCount: number
-    processingCount: number
-    completedCount: number
+    blacklistedCount: number
     failedCount: number
   }> {
     try {
-      const prefixes = ['pending:', 'processing:', 'completed:', 'failed:']
-      const counts = await Promise.all(
-        prefixes.map(async (prefix) => {
-          try {
-            const response = await this.client.kv.namespaces.keys.list(
-              this.gameIdsNamespaceId,
-              {
-                account_id: this.accountId,
-                prefix,
-                limit: 1000, // 假设不会超过 1000 个
-              },
-            )
-            return response.result?.length || 0
+      const [pendingList, failedList] = await Promise.all([
+        this.client.kv.namespaces.keys.list(
+          this.gameIdsNamespaceId,
+          {
+            account_id: this.accountId,
+            prefix: 'pending:',
+            limit: 1000,
+          },
+        ),
+        this.client.kv.namespaces.keys.list(
+          this.gameIdsNamespaceId,
+          {
+            account_id: this.accountId,
+            prefix: 'failed:',
+            limit: 1000,
+          },
+        ),
+      ])
+
+      // 统计黑名单数量
+      let blacklistedCount = 0
+      for (const key of failedList.result || []) {
+        try {
+          const valueResponse = await this.client.kv.namespaces.values.get(
+            this.gameIdsNamespaceId,
+            key.name,
+            { account_id: this.accountId },
+          )
+          if (valueResponse) {
+            const valueText = await valueResponse.text()
+            const failureData: QueueItem = JSON.parse(valueText)
+            if (failureData.blacklisted) {
+              blacklistedCount++
+            }
           }
-          catch (error) {
-            console.warn(`⚠️ 获取 ${prefix} 统计失败:`, error)
-            return 0
-          }
-        }),
-      )
+        }
+        catch {
+          // 忽略解析错误
+        }
+      }
 
       return {
-        pendingCount: counts[0],
-        processingCount: counts[1],
-        completedCount: counts[2],
-        failedCount: counts[3],
+        pendingCount: pendingList.result?.length || 0,
+        blacklistedCount,
+        failedCount: failedList.result?.length || 0,
       }
     }
     catch (error) {
       console.error('❌ 获取队列统计失败:', error)
       return {
         pendingCount: 0,
-        processingCount: 0,
-        completedCount: 0,
+        blacklistedCount: 0,
         failedCount: 0,
       }
     }
   }
 
   /**
-   * 清理长时间处于 processing 状态的游戏（超过 1 小时）
+   * 清理过期的失败记录（新结构不再需要清理 processing 状态）
    */
   async cleanupStaleProcessing(): Promise<void> {
-    try {
-      console.log('🧹 清理长时间处于 processing 状态的游戏...')
-
-      const response = await this.client.kv.namespaces.keys.list(
-        this.gameIdsNamespaceId,
-        {
-          account_id: this.accountId,
-          prefix: 'processing:',
-          limit: 100,
-        },
-      )
-
-      if (!response.result || response.result.length === 0) {
-        console.log('✅ 没有需要清理的 processing 状态')
-        return
-      }
-
-      const oneHourAgo = Date.now() - 60 * 60 * 1000 // 1小时前
-      let cleanedCount = 0
-
-      for (const key of response.result) {
-        try {
-          const valueResponse = await this.client.kv.namespaces.values.get(
-            this.gameIdsNamespaceId,
-            key.name,
-            {
-              account_id: this.accountId,
-            },
-          )
-
-          if (valueResponse) {
-            const valueText = await valueResponse.text()
-            const processingData = JSON.parse(valueText)
-            if (processingData.startedAt < oneHourAgo) {
-              // 将过期的 processing 状态重新标记为 pending
-              const titleId = key.name.replace('processing:', '')
-              await this.deleteKey(key.name)
-
-              const pendingKey = `pending:${titleId}`
-              const pendingData = {
-                addedAt: Date.now(),
-                source: 'cleanup_retry',
-              }
-
-              await this.client.kv.namespaces.values.update(
-                this.gameIdsNamespaceId,
-                pendingKey,
-                {
-                  account_id: this.accountId,
-                  value: JSON.stringify(pendingData),
-                },
-              )
-
-              cleanedCount++
-              console.log(`🔄 游戏 ${titleId} 从过期的 processing 状态重置为 pending`)
-            }
-          }
-        }
-        catch (error) {
-          console.warn(`⚠️ 清理 processing 状态 ${key.name} 失败:`, error)
-        }
-      }
-
-      if (cleanedCount > 0) {
-        console.log(`✅ 清理完成，重置了 ${cleanedCount} 个过期的 processing 状态`)
-      }
-      else {
-        console.log('✅ 没有过期的 processing 状态需要清理')
-      }
-    }
-    catch (error) {
-      console.error('❌ 清理 processing 状态失败:', error)
-    }
+    console.log('🧹 新的 KV 结构不需要清理 processing 状态')
+    // 可以在这里添加清理过期失败记录的逻辑，但保持方法兼容性
   }
 
   /**
