@@ -301,19 +301,16 @@ export class GameScraper {
       await page.close()
 
       if (gameInfo && (gameInfo.formal_name || gameInfo.name_zh_hant)) {
-        // 根据 ID 类型设置对应的字段
-        let titleId: string
-        let nsuid: string | undefined
+        // 优先使用从页面爬取到的 titleId
+        const titleId = gameInfo.title_id || gameId
+        
+        // 如果没有从页面获取到 titleId，且输入的是 nsuid，则报错
+        if (!gameInfo.title_id && idInfo.type === 'nsuid') {
+          throw new Error(`无法从页面获取 titleId，输入的 nsuid: ${gameId}`)
+        }
 
-        if (idInfo.type === 'titleId') {
-          titleId = gameId
-          nsuid = gameInfo.nsuid || undefined
-        }
-        else {
-          // 如果是 nsuid，尝试从页面数据中获取 titleId
-          titleId = gameInfo.title_id || gameId
-          nsuid = gameId
-        }
+        // 记录 nsuid 用于日志
+        const nsuid = idInfo.type === 'nsuid' ? gameId : (gameInfo.nsuid || undefined)
 
         const result: ScrapedGameInfo = {
           titleId,
@@ -326,6 +323,7 @@ export class GameScraper {
 
         console.log(`✅ 成功爬取: ${result.name_zh_hant || result.formal_name}`)
         console.log(`   titleId: ${result.titleId}${result.nsuid ? `, nsuid: ${result.nsuid}` : ''}`)
+        console.log(`   输入ID: ${gameId} (${idInfo.type})`)
         return result
       }
       else {
