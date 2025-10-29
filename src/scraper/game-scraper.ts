@@ -1,11 +1,49 @@
 import type { Browser, BrowserContext } from 'playwright'
-import type { ScrapedGameInfo } from '../types'
+import type { GameIdInfo, ScrapedGameInfo } from '../types'
 import process from 'node:process'
 import { chromium } from 'playwright'
 
 export class GameScraper {
   private browser: Browser | null = null
   private context: BrowserContext | null = null
+
+  /**
+   * 判断游戏 ID 类型
+   * @param id 游戏 ID
+   * @returns ID 类型信息
+   */
+  private detectGameIdType(id: string): GameIdInfo {
+    // titleId: 16位十六进制 (例如: 0100f43008c44000)
+    // nsuid: 14位数字 (例如: 70010000095550)
+    const titleIdPattern = /^[0-9a-f]{16}$/i
+    const nsuidPattern = /^\d{14}$/
+
+    if (titleIdPattern.test(id)) {
+      return { id, type: 'titleId' }
+    }
+    else if (nsuidPattern.test(id)) {
+      return { id, type: 'nsuid' }
+    }
+    else {
+      throw new Error(`无效的游戏 ID 格式: ${id}`)
+    }
+  }
+
+  /**
+   * 根据 ID 类型生成对应的 URL
+   * @param idInfo ID 信息
+   * @returns 游戏页面 URL
+   */
+  private getGameUrl(idInfo: GameIdInfo): string {
+    if (idInfo.type === 'titleId') {
+      // titleId 格式: https://ec.nintendo.com/apps/{titleId}/HK
+      return `https://ec.nintendo.com/apps/${idInfo.id}/HK`
+    }
+    else {
+      // nsuid 格式: https://ec.nintendo.com/HK/zh/titles/{nsuid}
+      return `https://ec.nintendo.com/HK/zh/titles/${idInfo.id}`
+    }
+  }
 
   private readonly userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -124,20 +162,22 @@ export class GameScraper {
     console.log('✅ 爬虫初始化完成')
   }
 
-  async scrapeGame(titleId: string): Promise<ScrapedGameInfo | null> {
+  async scrapeGame(gameId: string): Promise<ScrapedGameInfo | null> {
     if (!this.context) {
       throw new Error('爬虫未初始化')
     }
 
     try {
-      console.log(`🎯 开始爬取游戏: ${titleId}`)
+      // 检测游戏 ID 类型
+      const idInfo = this.detectGameIdType(gameId)
+      console.log(`🎯 开始爬取游戏: ${gameId} (类型: ${idInfo.type})`)
 
       const page = await this.context.newPage()
 
       // 随机延迟
       await this.randomDelay()
 
-      const url = `https://ec.nintendo.com/apps/${titleId}/HK`
+      const url = this.getGameUrl(idInfo)
       console.log(`🌐 访问: ${url}`)
 
       const response = await page.goto(url, {
@@ -173,83 +213,86 @@ export class GameScraper {
         try {
           // 尝试从 NXSTORE 对象中提取信息
           const nxstore = (window as any).NXSTORE
-        if (nxstore && nxstore.titleDetail && nxstore.titleDetail.jsonData) {
-          const data = nxstore.titleDetail.jsonData
+          if (nxstore && nxstore.titleDetail && nxstore.titleDetail.jsonData) {
+            const data = nxstore.titleDetail.jsonData
 
-          const screenshots = data.screenshots
-            ? data.screenshots.map((screenshot: any) =>
-                screenshot.images?.[0]?.url,
-              ).filter(Boolean)
-            : []
+            const screenshots = data.screenshots
+              ? data.screenshots.map((screenshot: any) =>
+                  screenshot.images?.[0]?.url,
+                ).filter(Boolean)
+              : []
 
-          // 提取游玩模式
-          const playStyles = data.play_styles
-            ? data.play_styles.map((style: any) => style.name)
-            : []
+            // 提取游玩模式
+            const playStyles = data.play_styles
+              ? data.play_styles.map((style: any) => style.name)
+              : []
 
-          // 提取ROM大小 - 简化逻辑避免复杂函数
-          let romSize: number | undefined
-          if (data.rom_size_infos && Array.isArray(data.rom_size_infos)) {
-            // 优先查找 BEE 平台
-            let info = data.rom_size_infos.find((item: any) => 
-              item.platform === 'BEE' && 
-              typeof item.total_rom_size === 'number' && 
-              item.total_rom_size > 0
-            )
-            
-            // 如果没有 BEE，查找 HAC
-            if (!info) {
-              info = data.rom_size_infos.find((item: any) => 
-                item.platform === 'HAC' && 
-                typeof item.total_rom_size === 'number' && 
-                item.total_rom_size > 0
+            // 提取ROM大小 - 简化逻辑避免复杂函数
+            let romSize: number | undefined
+            if (data.rom_size_infos && Array.isArray(data.rom_size_infos)) {
+              // 优先查找 BEE 平台
+              let info = data.rom_size_infos.find((item: any) =>
+                item.platform === 'BEE'
+                && typeof item.total_rom_size === 'number'
+                && item.total_rom_size > 0,
               )
+
+              // 如果没有 BEE，查找 HAC
+              if (!info) {
+                info = data.rom_size_infos.find((item: any) =>
+                  item.platform === 'HAC'
+                  && typeof item.total_rom_size === 'number'
+                  && item.total_rom_size > 0,
+                )
+              }
+
+              // 如果还没有，取任何有效的
+              if (!info) {
+                info = data.rom_size_infos.find((item: any) =>
+                  typeof item.total_rom_size === 'number'
+                  && item.total_rom_size > 0,
+                )
+              }
+
+              if (info) {
+                romSize = info.total_rom_size
+              }
             }
-            
-            // 如果还没有，取任何有效的
-            if (!info) {
-              info = data.rom_size_infos.find((item: any) => 
-                typeof item.total_rom_size === 'number' && 
-                item.total_rom_size > 0
-              )
-            }
-            
-            if (info) {
-              romSize = info.total_rom_size
+
+            return {
+              title_id: data.id,
+              nsuid: data.nsuid,
+              formal_name: data.formal_name,
+              catch_copy: data.catch_copy,
+              description: data.description,
+              publisher_name: data.publisher?.name,
+              publisher_id: data.publisher?.id,
+              genre: data.genre,
+              release_date: data.release_date_on_eshop,
+              hero_banner_url: data.hero_banner_url,
+              screenshots,
+              platform: data.label_platform,
+              languages: data.languages || [],
+              player_number: data.player_number || {},
+              play_styles: playStyles,
+              rom_size: romSize,
+              rating_age: data.rating_info?.rating?.age,
+              rating_name: data.rating_info?.rating?.name,
+              in_app_purchase: data.in_app_purchase,
+              cloud_backup_type: data.cloud_backup_type,
             }
           }
+
+          // 备用方案：从 meta 标签提取
+          const nameElement = document.querySelector('meta[name="search.name"]')
+          const publisherElement = document.querySelector('meta[name="search.publisher"]')
 
           return {
-            formal_name: data.formal_name,
-            catch_copy: data.catch_copy,
-            description: data.description,
-            publisher_name: data.publisher?.name,
-            publisher_id: data.publisher?.id,
-            genre: data.genre,
-            release_date: data.release_date_on_eshop,
-            hero_banner_url: data.hero_banner_url,
-            screenshots,
-            platform: data.label_platform,
-            languages: data.languages || [],
-            player_number: data.player_number || {},
-            play_styles: playStyles,
-            rom_size: romSize,
-            rating_age: data.rating_info?.rating?.age,
-            rating_name: data.rating_info?.rating?.name,
-            in_app_purchase: data.in_app_purchase,
-            cloud_backup_type: data.cloud_backup_type,
+            name_zh_hant: nameElement ? nameElement.getAttribute('content') : null,
+            publisher_name: publisherElement ? publisherElement.getAttribute('content') : null,
           }
         }
-
-        // 备用方案：从 meta 标签提取
-        const nameElement = document.querySelector('meta[name="search.name"]')
-        const publisherElement = document.querySelector('meta[name="search.publisher"]')
-
-        return {
-          name_zh_hant: nameElement ? nameElement.getAttribute('content') : null,
-          publisher_name: publisherElement ? publisherElement.getAttribute('content') : null,
-        }
-        } catch (error) {
+        catch (error) {
           console.error('页面数据提取失败:', error)
           return null
         }
@@ -258,8 +301,23 @@ export class GameScraper {
       await page.close()
 
       if (gameInfo && (gameInfo.formal_name || gameInfo.name_zh_hant)) {
+        // 根据 ID 类型设置对应的字段
+        let titleId: string
+        let nsuid: string | undefined
+
+        if (idInfo.type === 'titleId') {
+          titleId = gameId
+          nsuid = gameInfo.nsuid || undefined
+        }
+        else {
+          // 如果是 nsuid，尝试从页面数据中获取 titleId
+          titleId = gameInfo.title_id || gameId
+          nsuid = gameId
+        }
+
         const result: ScrapedGameInfo = {
           titleId,
+          nsuid,
           ...gameInfo,
           name_zh_hant: gameInfo.formal_name || gameInfo.name_zh_hant,
           region: 'HK',
@@ -267,6 +325,7 @@ export class GameScraper {
         }
 
         console.log(`✅ 成功爬取: ${result.name_zh_hant || result.formal_name}`)
+        console.log(`   titleId: ${result.titleId}${result.nsuid ? `, nsuid: ${result.nsuid}` : ''}`)
         return result
       }
       else {
@@ -274,21 +333,21 @@ export class GameScraper {
       }
     }
     catch (error) {
-      console.error(`❌ 爬取失败 ${titleId}:`, error)
+      console.error(`❌ 爬取失败 ${gameId}:`, error)
       return null
     }
   }
 
-  async batchScrapeGames(titleIds: string[]): Promise<ScrapedGameInfo[]> {
-    console.log(`🚀 开始批量爬取 ${titleIds.length} 个游戏`)
+  async batchScrapeGames(gameIds: string[]): Promise<ScrapedGameInfo[]> {
+    console.log(`🚀 开始批量爬取 ${gameIds.length} 个游戏`)
 
     const results: ScrapedGameInfo[] = []
     let successCount = 0
     let failCount = 0
 
-    for (const titleId of titleIds) {
+    for (const gameId of gameIds) {
       try {
-        const gameInfo = await this.scrapeGame(titleId)
+        const gameInfo = await this.scrapeGame(gameId)
         if (gameInfo) {
           results.push(gameInfo)
           successCount++
@@ -298,7 +357,7 @@ export class GameScraper {
         }
       }
       catch (error) {
-        console.error(`处理游戏 ${titleId} 时出错:`, error)
+        console.error(`处理游戏 ${gameId} 时出错:`, error)
         failCount++
       }
     }
@@ -306,7 +365,7 @@ export class GameScraper {
     console.log(`\n📊 批量爬取完成:`)
     console.log(`   成功: ${successCount}`)
     console.log(`   失败: ${failCount}`)
-    console.log(`   成功率: ${((successCount / titleIds.length) * 100).toFixed(1)}%\n`)
+    console.log(`   成功率: ${((successCount / gameIds.length) * 100).toFixed(1)}%\n`)
 
     return results
   }

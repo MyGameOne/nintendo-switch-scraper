@@ -1,5 +1,6 @@
 export interface ScrapedGameInfo {
   titleId: string
+  nsuid?: string // Nintendo Switch Unique ID (仅用于日志，不存储到数据库)
   formal_name?: string
   name_zh_hant?: string // 繁体中文名称（从香港网站获取）
   name_zh_hans?: string // 简体中文名称（预留）
@@ -25,6 +26,13 @@ export interface ScrapedGameInfo {
   region?: string
   data_source?: string // 数据来源
   notes?: string // 备注
+}
+
+export type GameIdType = 'titleId' | 'nsuid'
+
+export interface GameIdInfo {
+  id: string
+  type: GameIdType
 }
 
 export interface CloudflareEnv {
