@@ -260,8 +260,8 @@ export class GameScraper {
             }
 
             return {
-              title_id: data.id,
-              nsuid: data.nsuid,
+              title_id: data.applications?.[0]?.id ?? gameId,
+              nsuid: data.id,
               formal_name: data.formal_name,
               catch_copy: data.catch_copy,
               description: data.description,
@@ -303,7 +303,7 @@ export class GameScraper {
       if (gameInfo && (gameInfo.formal_name || gameInfo.name_zh_hant)) {
         // 优先使用从页面爬取到的 titleId
         const titleId = gameInfo.title_id || gameId
-        
+
         // 如果没有从页面获取到 titleId，且输入的是 nsuid，则报错
         if (!gameInfo.title_id && idInfo.type === 'nsuid') {
           throw new Error(`无法从页面获取 titleId，输入的 nsuid: ${gameId}`)
