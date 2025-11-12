@@ -90,7 +90,9 @@ async function main() {
   console.log(`📋 获取到 ${queueItems.length} 个待处理游戏:`)
   queueItems.forEach((item, index) => {
     const addedTime = new Date(item.addedAt).toLocaleString()
-    console.log(`   ${index + 1}. ${item.titleId} (来源: ${item.source}, 添加时间: ${addedTime})`)
+    const taskType = item.forceRefresh ? '🔄 刷新' : '📝 新增'
+    const priority = item.priority === 'refresh' ? ' [高优先级]' : ''
+    console.log(`   ${index + 1}. ${taskType} ${item.titleId} (来源: ${item.source}, 添加时间: ${addedTime})${priority}`)
   })
   console.log('')
 
@@ -111,23 +113,25 @@ async function main() {
     // 并发处理游戏
     const tasks = queueItems.map(item =>
       limit(async () => {
-        const { titleId } = item
+        const { titleId, forceRefresh } = item
+        const taskType = forceRefresh ? '🔄 刷新' : '📝 新增'
 
         try {
-          console.log(`🔍 开始处理游戏: ${titleId}`)
+          console.log(`${taskType} 开始处理游戏: ${titleId}`)
 
           // 爬取游戏信息
           const gameInfo = await scraper.scrapeGame(titleId)
 
           if (gameInfo) {
-            // 上传到数据库
-            await d1Uploader.uploadGames([gameInfo])
+            // 上传到数据库（强制刷新模式会覆盖已有数据）
+            await d1Uploader.uploadGames([gameInfo], forceRefresh)
 
             // 标记为完成
             await kvQueueManager.markAsCompleted(titleId)
 
             successCount++
-            console.log(`✅ 成功处理: ${gameInfo.name_zh_hant || gameInfo.formal_name} (${titleId})`)
+            const action = forceRefresh ? '刷新' : '新增'
+            console.log(`✅ ${action}成功: ${gameInfo.name_zh_hant || gameInfo.formal_name} (${titleId})`)
           }
           else {
             // 标记为失败

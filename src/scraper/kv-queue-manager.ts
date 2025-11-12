@@ -10,6 +10,8 @@ export interface QueueItem {
   lastFailedAt?: number
   blacklisted?: boolean
   reason?: string
+  priority?: 'normal' | 'high' | 'refresh'
+  forceRefresh?: boolean
 }
 
 export class KVQueueManager {
@@ -26,7 +28,7 @@ export class KVQueueManager {
   }
 
   /**
-   * 获取待处理的游戏 ID 列表
+   * 获取待处理的游戏 ID 列表（刷新任务优先）
    * @param limit 限制数量，默认 100
    * @returns 待处理的游戏 ID 数组
    */
@@ -52,7 +54,8 @@ export class KVQueueManager {
       console.log(`📋 找到 ${listResponse.result.length} 个待处理的游戏 ID`)
 
       // 批量获取队列项的详细信息
-      const queueItems: QueueItem[] = []
+      const refreshTasks: QueueItem[] = []
+      const normalTasks: QueueItem[] = []
 
       for (const key of listResponse.result) {
         try {
@@ -68,7 +71,7 @@ export class KVQueueManager {
           if (valueResponse) {
             const valueText = await valueResponse.text()
             const queueData = JSON.parse(valueText)
-            queueItems.push({
+            const queueItem: QueueItem = {
               titleId,
               addedAt: queueData.addedAt || Date.now(),
               source: queueData.source || 'unknown',
@@ -77,26 +80,46 @@ export class KVQueueManager {
               lastFailedAt: queueData.lastFailedAt,
               blacklisted: queueData.blacklisted,
               reason: queueData.reason,
-            })
+              priority: queueData.priority || 'normal',
+              forceRefresh: queueData.forceRefresh || false,
+            }
+
+            // 刷新任务优先
+            if (queueItem.forceRefresh || queueItem.priority === 'refresh') {
+              refreshTasks.push(queueItem)
+            }
+            else {
+              normalTasks.push(queueItem)
+            }
           }
         }
         catch (error) {
           console.warn(`⚠️ 解析队列项 ${key.name} 失败:`, error)
           // 如果解析失败，仍然添加基本信息
-          queueItems.push({
+          normalTasks.push({
             titleId: key.name.replace('pending:', ''),
             addedAt: Date.now(),
             source: 'unknown',
             status: 'pending',
             failureCount: 0,
+            priority: 'normal',
+            forceRefresh: false,
           })
         }
       }
 
-      // 按添加时间排序，优先处理较早添加的
-      queueItems.sort((a, b) => a.addedAt - b.addedAt)
+      // 刷新任务按添加时间排序
+      refreshTasks.sort((a, b) => a.addedAt - b.addedAt)
+      // 普通任务按添加时间排序
+      normalTasks.sort((a, b) => a.addedAt - b.addedAt)
 
-      console.log(`✅ 成功获取 ${queueItems.length} 个队列项`)
+      // 刷新任务优先返回
+      const queueItems = [...refreshTasks, ...normalTasks]
+
+      if (refreshTasks.length > 0) {
+        console.log(`🔄 发现 ${refreshTasks.length} 个刷新任务（优先处理）`)
+      }
+      console.log(`✅ 成功获取 ${queueItems.length} 个队列项 (刷新: ${refreshTasks.length}, 普通: ${normalTasks.length})`)
       return queueItems
     }
     catch (error) {

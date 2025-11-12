@@ -47,31 +47,33 @@ export class D1Uploader {
     }
   }
 
-  async uploadGames(gamesList: ScrapedGameInfo[]): Promise<void> {
+  async uploadGames(gamesList: ScrapedGameInfo[], forceRefresh: boolean = false): Promise<void> {
     if (gamesList.length === 0) {
       console.log('📤 没有游戏需要上传')
       return
     }
 
-    console.log(`📤 开始上传 ${gamesList.length} 个游戏到 Cloudflare D1...`)
+    const mode = forceRefresh ? '强制刷新' : '普通上传'
+    console.log(`📤 开始${mode} ${gamesList.length} 个游戏到 Cloudflare D1...`)
 
     let totalUploaded = 0
 
     for (const game of gamesList) {
       try {
-        await this.uploadSingleGame(game)
+        await this.uploadSingleGame(game, forceRefresh)
         totalUploaded++
-        console.log(`✅ 已上传: ${game.name_zh_hant || game.formal_name} (${totalUploaded}/${gamesList.length})`)
+        const action = forceRefresh ? '刷新' : '上传'
+        console.log(`✅ 已${action}: ${game.name_zh_hant || game.formal_name} (${totalUploaded}/${gamesList.length})`)
       }
       catch (error) {
         console.error(`❌ 上传游戏 ${game.titleId} 失败:`, error)
       }
     }
 
-    console.log(`🎉 上传完成！成功上传 ${totalUploaded}/${gamesList.length} 个游戏`)
+    console.log(`🎉 ${mode}完成！成功处理 ${totalUploaded}/${gamesList.length} 个游戏`)
   }
 
-  private async uploadSingleGame(game: ScrapedGameInfo): Promise<void> {
+  private async uploadSingleGame(game: ScrapedGameInfo, forceRefresh: boolean = false): Promise<void> {
     const currentTime = new Date().toISOString()
 
     // 检查游戏是否已存在
@@ -79,6 +81,10 @@ export class D1Uploader {
     const existingGame = await this.executeD1Query(checkQuery, [game.titleId])
 
     if (existingGame.results.length > 0) {
+      // 如果是强制刷新模式，或者游戏已存在，则更新
+      if (forceRefresh) {
+        console.log(`🔄 强制刷新游戏: ${game.titleId}`)
+      }
       // 更新现有游戏
       const updateQuery = `
         UPDATE games SET
