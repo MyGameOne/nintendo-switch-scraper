@@ -77,14 +77,49 @@ export class D1Uploader {
     const currentTime = new Date().toISOString()
 
     // 检查游戏是否已存在
-    const checkQuery = 'SELECT title_id FROM games WHERE title_id = ?'
-    const existingGame = await this.executeD1Query(checkQuery, [game.titleId])
+    const checkQuery = 'SELECT * FROM games WHERE title_id = ?'
+    const existingGameResult = await this.executeD1Query(checkQuery, [game.titleId])
 
-    if (existingGame.results.length > 0) {
+    if (existingGameResult.results.length > 0) {
       // 如果是强制刷新模式，或者游戏已存在，则更新
       if (forceRefresh) {
         console.log(`🔄 强制刷新游戏: ${game.titleId}`)
       }
+
+      // 获取旧数据
+      const oldGame = existingGameResult.results[0]
+
+      // 智能合并：如果新数据为空，则使用旧数据
+      const mergedData = {
+        nsuid: game.nsuid || oldGame.nsuid,
+        formal_name: game.formal_name || oldGame.formal_name,
+        name_zh_hant: game.name_zh_hant || oldGame.name_zh_hant,
+        name_zh_hans: game.name_zh_hans || oldGame.name_zh_hans,
+        name_en: game.name_en || oldGame.name_en,
+        name_ja: game.name_ja || oldGame.name_ja,
+        catch_copy: game.catch_copy || oldGame.catch_copy,
+        description: game.description || oldGame.description,
+        publisher_name: game.publisher_name || oldGame.publisher_name,
+        publisher_id: game.publisher_id ?? oldGame.publisher_id,
+        genre: game.genre || oldGame.genre,
+        release_date: game.release_date || oldGame.release_date,
+        hero_banner_url: game.hero_banner_url || oldGame.hero_banner_url,
+        screenshots: game.screenshots?.length ? JSON.stringify(game.screenshots) : oldGame.screenshots,
+        platform: game.platform || oldGame.platform || 'HAC',
+        languages: game.languages?.length ? JSON.stringify(game.languages) : oldGame.languages,
+        player_number: game.player_number ? JSON.stringify(game.player_number) : oldGame.player_number,
+        play_styles: game.play_styles?.length ? JSON.stringify(game.play_styles) : oldGame.play_styles,
+        rom_size: game.rom_size ?? oldGame.rom_size,
+        rom_size_infos: game.rom_size_infos ? JSON.stringify(game.rom_size_infos) : oldGame.rom_size_infos,
+        rating_age: game.rating_age ?? oldGame.rating_age,
+        rating_name: game.rating_name || oldGame.rating_name,
+        in_app_purchase: game.in_app_purchase !== undefined ? (game.in_app_purchase ? 1 : 0) : oldGame.in_app_purchase,
+        cloud_backup_type: game.cloud_backup_type || oldGame.cloud_backup_type,
+        region: game.region || oldGame.region || 'HK',
+        data_source: game.data_source || oldGame.data_source || 'scraper',
+        notes: game.notes || oldGame.notes,
+      }
+
       // 更新现有游戏
       const updateQuery = `
         UPDATE games SET
@@ -120,33 +155,33 @@ export class D1Uploader {
       `
 
       await this.executeD1Query(updateQuery, [
-        game.nsuid || null,
-        game.formal_name || null,
-        game.name_zh_hant || null,
-        game.name_zh_hans || null,
-        game.name_en || null,
-        game.name_ja || null,
-        game.catch_copy || null,
-        game.description || null,
-        game.publisher_name || null,
-        game.publisher_id || null,
-        game.genre || null,
-        game.release_date || null,
-        game.hero_banner_url || null,
-        game.screenshots ? JSON.stringify(game.screenshots) : null,
-        game.platform || 'HAC',
-        game.languages ? JSON.stringify(game.languages) : null,
-        game.player_number ? JSON.stringify(game.player_number) : null,
-        game.play_styles ? JSON.stringify(game.play_styles) : null,
-        game.rom_size || null,
-        game.rom_size_infos ? JSON.stringify(game.rom_size_infos) : null,
-        game.rating_age || null,
-        game.rating_name || null,
-        game.in_app_purchase ? 1 : 0,
-        game.cloud_backup_type || null,
-        game.region || 'HK',
-        game.data_source || 'scraper',
-        game.notes || null,
+        mergedData.nsuid,
+        mergedData.formal_name,
+        mergedData.name_zh_hant,
+        mergedData.name_zh_hans,
+        mergedData.name_en,
+        mergedData.name_ja,
+        mergedData.catch_copy,
+        mergedData.description,
+        mergedData.publisher_name,
+        mergedData.publisher_id,
+        mergedData.genre,
+        mergedData.release_date,
+        mergedData.hero_banner_url,
+        mergedData.screenshots,
+        mergedData.platform,
+        mergedData.languages,
+        mergedData.player_number,
+        mergedData.play_styles,
+        mergedData.rom_size,
+        mergedData.rom_size_infos,
+        mergedData.rating_age,
+        mergedData.rating_name,
+        mergedData.in_app_purchase,
+        mergedData.cloud_backup_type,
+        mergedData.region,
+        mergedData.data_source,
+        mergedData.notes,
         currentTime,
         game.titleId,
       ])

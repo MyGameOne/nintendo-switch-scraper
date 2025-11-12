@@ -260,7 +260,7 @@ export class GameScraper {
             }
 
             return {
-              title_id: data.applications?.[0]?.id ?? gameId,
+              title_id: gameId ?? data.applications?.[0]?.id,
               nsuid: data.id,
               formal_name: data.formal_name,
               catch_copy: data.catch_copy,
