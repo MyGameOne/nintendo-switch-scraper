@@ -1,6 +1,6 @@
 export interface ScrapedGameInfo {
   titleId: string
-  nsuid?: string // Nintendo Switch Unique ID (仅用于日志，不存储到数据库)
+  nsuid?: string // Nintendo Switch Unique ID
   formal_name?: string
   name_zh_hant?: string // 繁体中文名称（从香港网站获取）
   name_zh_hans?: string // 简体中文名称（预留）
@@ -19,6 +19,7 @@ export interface ScrapedGameInfo {
   player_number?: any // 游玩人数对象
   play_styles?: any[] // 游玩模式数组
   rom_size?: number
+  rom_size_infos?: any[] // ROM 大小详细信息数组
   rating_age?: number
   rating_name?: string
   in_app_purchase?: boolean

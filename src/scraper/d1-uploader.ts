@@ -82,6 +82,7 @@ export class D1Uploader {
       // 更新现有游戏
       const updateQuery = `
         UPDATE games SET
+          nsuid = ?,
           formal_name = ?,
           name_zh_hant = ?,
           name_zh_hans = ?,
@@ -100,6 +101,7 @@ export class D1Uploader {
           player_number = ?,
           play_styles = ?,
           rom_size = ?,
+          rom_size_infos = ?,
           rating_age = ?,
           rating_name = ?,
           in_app_purchase = ?,
@@ -112,6 +114,7 @@ export class D1Uploader {
       `
 
       await this.executeD1Query(updateQuery, [
+        game.nsuid || null,
         game.formal_name || null,
         game.name_zh_hant || null,
         game.name_zh_hans || null,
@@ -130,6 +133,7 @@ export class D1Uploader {
         game.player_number ? JSON.stringify(game.player_number) : null,
         game.play_styles ? JSON.stringify(game.play_styles) : null,
         game.rom_size || null,
+        game.rom_size_infos ? JSON.stringify(game.rom_size_infos) : null,
         game.rating_age || null,
         game.rating_name || null,
         game.in_app_purchase ? 1 : 0,
@@ -145,16 +149,17 @@ export class D1Uploader {
       // 插入新游戏
       const insertQuery = `
         INSERT INTO games (
-          title_id, formal_name, name_zh_hant, name_zh_hans, name_en, name_ja,
+          title_id, nsuid, formal_name, name_zh_hant, name_zh_hans, name_en, name_ja,
           catch_copy, description, publisher_name, publisher_id, genre, release_date,
           hero_banner_url, screenshots, platform, languages, player_number, play_styles,
-          rom_size, rating_age, rating_name, in_app_purchase, cloud_backup_type,
+          rom_size, rom_size_infos, rating_age, rating_name, in_app_purchase, cloud_backup_type,
           region, data_source, notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
 
       await this.executeD1Query(insertQuery, [
         game.titleId,
+        game.nsuid || null,
         game.formal_name || null,
         game.name_zh_hant || null,
         game.name_zh_hans || null,
@@ -173,6 +178,7 @@ export class D1Uploader {
         game.player_number ? JSON.stringify(game.player_number) : null,
         game.play_styles ? JSON.stringify(game.play_styles) : null,
         game.rom_size || null,
+        game.rom_size_infos ? JSON.stringify(game.rom_size_infos) : null,
         game.rating_age || null,
         game.rating_name || null,
         game.in_app_purchase ? 1 : 0,

@@ -276,6 +276,7 @@ export class GameScraper {
               player_number: data.player_number || {},
               play_styles: playStyles,
               rom_size: romSize,
+              rom_size_infos: data.rom_size_infos || [],
               rating_age: data.rating_info?.rating?.age,
               rating_name: data.rating_info?.rating?.name,
               in_app_purchase: data.in_app_purchase,
