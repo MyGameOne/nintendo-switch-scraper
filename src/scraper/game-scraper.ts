@@ -323,8 +323,8 @@ export class GameScraper {
         }
 
         const result: ScrapedGameInfo = {
-          titleId,
-          nsuid,
+          titleId: titleId,
+          nsuid: String(nsuid),
           ...gameInfo,
           name_zh_hant: gameInfo.formal_name || gameInfo.name_zh_hant,
           region: 'HK',
