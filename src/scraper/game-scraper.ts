@@ -260,8 +260,8 @@ export class GameScraper {
             }
 
             return {
-              title_id: gameId ?? data.applications?.[0]?.id,
-              nsuid: data.id,
+              page_title_id: data.applications?.[0]?.id, // 从页面提取的 titleId
+              page_nsuid: data.id, // 从页面提取的 nsuid (data.id 就是 nsuid)
               formal_name: data.formal_name,
               catch_copy: data.catch_copy,
               description: data.description,
@@ -302,16 +302,25 @@ export class GameScraper {
       await page.close()
 
       if (gameInfo && (gameInfo.formal_name || gameInfo.name_zh_hant)) {
-        // 优先使用从页面爬取到的 titleId
-        const titleId = gameInfo.title_id || gameId
+        // 根据输入的 ID 类型来设置 titleId 和 nsuid
+        let titleId: string
+        let nsuid: string | undefined
 
-        // 如果没有从页面获取到 titleId，且输入的是 nsuid，则报错
-        if (!gameInfo.title_id && idInfo.type === 'nsuid') {
-          throw new Error(`无法从页面获取 titleId，输入的 nsuid: ${gameId}`)
+        if (idInfo.type === 'titleId') {
+          // 输入的是 titleId
+          titleId = gameId // 使用输入的 titleId 存储到数据库的 title_id 字段
+          nsuid = gameInfo.page_nsuid || undefined // 从页面提取 nsuid (data.id)
         }
+        else {
+          // 输入的是 nsuid
+          nsuid = gameId // 使用输入的 nsuid 存储到数据库的 nsuid 字段
+          titleId = gameInfo.page_title_id // 从页面提取 titleId (data.applications[0].id)
 
-        // 记录 nsuid 用于日志
-        const nsuid = idInfo.type === 'nsuid' ? gameId : (gameInfo.nsuid || undefined)
+          // 如果页面没有返回 titleId，则报错
+          if (!titleId) {
+            throw new Error(`无法从页面获取 titleId，输入的 nsuid: ${gameId}`)
+          }
+        }
 
         const result: ScrapedGameInfo = {
           titleId,

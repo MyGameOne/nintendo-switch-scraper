@@ -176,22 +176,37 @@ export class KVQueueManager {
 
       // 获取或创建失败记录
       let failureData: QueueItem
-      const existingFailure = await this.client.kv.namespaces.values.get(
-        this.gameIdsNamespaceId,
-        failedKey,
-        { account_id: this.accountId },
-      )
 
-      if (existingFailure) {
-        try {
-          const valueText = await existingFailure.text()
-          failureData = JSON.parse(valueText)
-          failureData.failureCount += 1
-          failureData.lastFailedAt = Date.now()
-          failureData.reason = error.substring(0, 500)
+      try {
+        const existingFailure = await this.client.kv.namespaces.values.get(
+          this.gameIdsNamespaceId,
+          failedKey,
+          { account_id: this.accountId },
+        )
+
+        if (existingFailure) {
+          try {
+            const valueText = await existingFailure.text()
+            failureData = JSON.parse(valueText)
+            failureData.failureCount += 1
+            failureData.lastFailedAt = Date.now()
+            failureData.reason = error.substring(0, 500)
+          }
+          catch {
+            // 解析失败，创建新记录
+            failureData = {
+              titleId,
+              addedAt: Date.now(),
+              source: 'unknown',
+              status: 'failed',
+              failureCount: 1,
+              lastFailedAt: Date.now(),
+              reason: error.substring(0, 500),
+            }
+          }
         }
-        catch {
-          // 解析失败，创建新记录
+        else {
+          // 不存在，创建新记录
           failureData = {
             titleId,
             addedAt: Date.now(),
@@ -203,15 +218,22 @@ export class KVQueueManager {
           }
         }
       }
-      else {
-        failureData = {
-          titleId,
-          addedAt: Date.now(),
-          source: 'unknown',
-          status: 'failed',
-          failureCount: 1,
-          lastFailedAt: Date.now(),
-          reason: error.substring(0, 500),
+      catch (getError: any) {
+        // 404 错误表示 key 不存在，创建新记录
+        if (getError?.status === 404 || getError?.message?.includes('key not found')) {
+          failureData = {
+            titleId,
+            addedAt: Date.now(),
+            source: 'unknown',
+            status: 'failed',
+            failureCount: 1,
+            lastFailedAt: Date.now(),
+            reason: error.substring(0, 500),
+          }
+        }
+        else {
+          // 其他错误，重新抛出
+          throw getError
         }
       }
 
@@ -245,6 +267,7 @@ export class KVQueueManager {
     }
     catch (kvError) {
       console.error(`❌ 记录游戏 ${titleId} 失败状态时出错:`, kvError)
+      // 不抛出错误，避免阻塞主流程
     }
   }
 
